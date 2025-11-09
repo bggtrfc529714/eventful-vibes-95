@@ -45,21 +45,39 @@ const Home = () => {
 
   const fetchEvents = async () => {
     try {
-      const { data: eventsData, error } = await supabase
+      // Fetch events
+      const { data: eventsData, error: eventsError } = await supabase
         .from("events")
-        .select(`
-          *,
-          profiles (full_name)
-        `)
+        .select("*")
         .gte("event_date", new Date().toISOString())
         .order("event_date", { ascending: true });
 
-      if (error) throw error;
+      if (eventsError) throw eventsError;
 
-      setEvents((eventsData as any) || []);
+      if (!eventsData || eventsData.length === 0) {
+        setEvents([]);
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch profiles for all hosts
+      const hostIds = [...new Set(eventsData.map(e => e.host_id))];
+      const { data: profilesData } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", hostIds);
+
+      const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
+
+      // Merge events with profile data
+      const eventsWithProfiles = eventsData.map(event => ({
+        ...event,
+        profiles: profilesMap.get(event.host_id),
+      }));
+
+      setEvents(eventsWithProfiles as any);
 
       // Fetch registration counts
-      const eventIds = eventsData?.map(e => e.id) || [];
       const { data: regsData } = await supabase
         .from("event_registrations")
         .select("event_id");
@@ -71,9 +89,7 @@ const Home = () => {
       setRegistrations(regCounts);
 
       // Fetch host ratings
-      const hostIds = [...new Set(eventsData?.map(e => e.host_id) || [])];
       const ratings: Record<string, number> = {};
-      
       for (const hostId of hostIds) {
         const { data } = await supabase.rpc("get_host_rating", {
           host_user_id: hostId,
