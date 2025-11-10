@@ -40,7 +40,7 @@ const Home = () => {
   const [filter, setFilter] = useState<string | undefined>();
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error } = useQuery<{ events: Event[] }>({
     queryKey: ["events", { searchQuery, filter }],
     queryFn: () => getEvents({ limit: 10, offset: 0, searchText: searchQuery, filter }),
   });
@@ -92,7 +92,7 @@ const Home = () => {
                     type="single"
                     variant="outline"
                     value={filter}
-                    onValueChange={setFilter}
+                    onValueChange={(value) => setFilter(value === filter ? undefined : value)}
                     className="flex-wrap justify-start"
                   >
                     {suggestedInterests.map((interest) => (
