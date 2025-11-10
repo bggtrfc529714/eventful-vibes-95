@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import Navigation from "@/components/Navigation";
 import { toast } from "sonner";
 import { Loader2, ArrowLeft } from "lucide-react";
+import { useLoadScript, Autocomplete } from "@react-google-maps/api";
 
 const CreateEvent = () => {
   const navigate = useNavigate();
@@ -21,7 +22,29 @@ const CreateEvent = () => {
     locationName: "",
     category: "",
     capacity: "",
+    lat: null as number | null,
+    lng: null as number | null,
   });
+  const [autocomplete, setAutocomplete] = useState<google.maps.places.Autocomplete | null>(null);
+
+  const { isLoaded } = useLoadScript({
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+    libraries: ["places"],
+  });
+
+  const onPlaceChanged = () => {
+    if (autocomplete !== null) {
+      const place = autocomplete.getPlace();
+      if (place.geometry && place.geometry.location) {
+        setFormData((prev) => ({
+          ...prev,
+          locationName: place.formatted_address || "",
+          lat: place.geometry?.location?.lat() || null,
+          lng: place.geometry?.location?.lng() || null,
+        }));
+      }
+    }
+  };
 
   const categories = [
     "Sports",
@@ -52,14 +75,16 @@ const CreateEvent = () => {
         location_name: formData.locationName,
         category: formData.category,
         capacity: parseInt(formData.capacity),
+        location_lat: formData.lat,
+        location_lng: formData.lng,
       });
 
       if (error) throw error;
 
       toast.success("Event created successfully!");
       navigate("/my-events");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to create event");
+    } catch (error) {
+      toast.error((error as Error).message || "Failed to create event");
     } finally {
       setIsLoading(false);
     }
@@ -132,35 +157,41 @@ const CreateEvent = () => {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="location">Location *</Label>
-            <Input
-              id="location"
-              placeholder="e.g., Central Park, New York"
-              value={formData.locationName}
-              onChange={(e) => setFormData({ ...formData, locationName: e.target.value })}
-              required
-            />
-          </div>
+          {isLoaded && (
+            <div className="space-y-2">
+              <Label htmlFor="location">Location *</Label>
+              <Autocomplete
+                onLoad={(autocomplete) => setAutocomplete(autocomplete)}
+                onPlaceChanged={onPlaceChanged}
+              >
+                <Input
+                  id="location"
+                  placeholder="e.g., Central Park, New York"
+                  value={formData.locationName}
+                  onChange={(e) => setFormData({ ...formData, locationName: e.target.value })}
+                  required
+                />
+              </Autocomplete>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="category">Category *</Label>
-              <Select
+              <ToggleGroup
+                type="single"
                 value={formData.category}
-                onValueChange={(value) => setFormData({ ...formData, category: value })}
+                onValueChange={(value) => {
+                  if (value) setFormData({ ...formData, category: value });
+                }}
+                className="flex-wrap justify-start"
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((cat) => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                {categories.map((cat) => (
+                  <ToggleGroupItem key={cat} value={cat} aria-label={`Toggle ${cat}`} variant="outline">
+                    {cat}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
             </div>
 
             <div className="space-y-2">
@@ -200,3 +231,4 @@ const CreateEvent = () => {
 };
 
 export default CreateEvent;
+

@@ -1,114 +1,27 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import Navigation from "@/components/Navigation";
 import EventCard from "@/components/EventCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-
-interface Event {
-  id: string;
-  title: string;
-  description: string;
-  event_date: string;
-  location_name: string;
-  category: string;
-  capacity: number;
-  image_url?: string;
-  host_id: string;
-  profiles?: {
-    full_name: string;
-  };
-}
+import { getMyEvents } from "@/lib/events";
+import { type Event } from "@/integrations/supabase/types";
 
 const MyEvents = () => {
-  const [attendingEvents, setAttendingEvents] = useState<Event[]>([]);
-  const [hostingEvents, setHostingEvents] = useState<Event[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [registrations, setRegistrations] = useState<Record<string, number>>({});
-  const [hostRatings, setHostRatings] = useState<Record<string, number>>({});
+  const { data: session } = useQuery({
+    queryKey: ["session"],
+    queryFn: () => supabase.auth.getSession(),
+  });
 
-  useEffect(() => {
-    fetchMyEvents();
-  }, []);
+  const { data, isLoading } = useQuery({
+    queryKey: ["myEvents", session?.data.session?.user?.id],
+    queryFn: () => getMyEvents(session?.data.session?.user?.id ?? ''),
+    enabled: !!session?.data.session?.user?.id,
+  });
 
-  const fetchMyEvents = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Fetch events user is attending
-      const { data: regs } = await supabase
-        .from("event_registrations")
-        .select("event_id")
-        .eq("user_id", user.id);
-
-      const eventIds = regs?.map((r) => r.event_id) || [];
-
-      let attendingData: Event[] = [];
-      if (eventIds.length > 0) {
-        const { data: attending } = await supabase
-          .from("events")
-          .select(`
-            *,
-            profiles (full_name)
-          `)
-          .in("id", eventIds)
-          .gte("event_date", new Date().toISOString())
-          .order("event_date", { ascending: true });
-
-        attendingData = (attending as any) || [];
-      }
-      setAttendingEvents(attendingData);
-
-      // Fetch events user is hosting
-      const { data: hosting } = await supabase
-        .from("events")
-        .select(`
-          *,
-          profiles (full_name)
-        `)
-        .eq("host_id", user.id)
-        .gte("event_date", new Date().toISOString())
-        .order("event_date", { ascending: true });
-
-      setHostingEvents((hosting as any) || []);
-
-      // Fetch registration counts
-      const allEventIds = [
-        ...eventIds,
-        ...(hosting?.map((e) => e.id) || []),
-      ];
-      const { data: allRegs } = await supabase
-        .from("event_registrations")
-        .select("event_id");
-
-      const regCounts: Record<string, number> = {};
-      allRegs?.forEach((reg) => {
-        regCounts[reg.event_id] = (regCounts[reg.event_id] || 0) + 1;
-      });
-      setRegistrations(regCounts);
-
-      // Fetch host ratings
-      const allEvents = [...attendingData, ...(hosting || [])];
-      const hostIds = [...new Set(allEvents.map((e) => e.host_id))];
-      const ratings: Record<string, number> = {};
-
-      for (const hostId of hostIds) {
-        const { data } = await supabase.rpc("get_host_rating", {
-          host_user_id: hostId,
-        });
-        if (data !== null) {
-          ratings[hostId] = data;
-        }
-      }
-      setHostRatings(ratings);
-    } catch (error) {
-      console.error("Error fetching events:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const hostingEvents = data?.hosting || [];
+  const attendingEvents = data?.attending || [];
 
   const renderEventList = (events: Event[]) => {
     if (isLoading) {
@@ -140,9 +53,9 @@ const MyEvents = () => {
         category={event.category}
         capacity={event.capacity}
         imageUrl={event.image_url}
-        hostName={event.profiles?.full_name || "Unknown Host"}
-        hostRating={hostRatings[event.host_id]}
-        registeredCount={registrations[event.id] || 0}
+        hostName={event.host_full_name || "Unknown Host"}
+        hostRating={event.host_rating}
+        registeredCount={event.registration_count || 0}
       />
     ));
   };

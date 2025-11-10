@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
+import { categoryImages } from "@/lib/category-images";
 
 interface EventCardProps {
   id: string;
@@ -12,9 +13,9 @@ interface EventCardProps {
   locationName: string;
   category: string;
   capacity: number;
-  imageUrl?: string;
+  imageUrl: string | null;
   hostName: string;
-  hostRating?: number;
+  hostRating: number;
   registeredCount: number;
 }
 
@@ -31,13 +32,15 @@ const EventCard = ({
   hostRating,
   registeredCount,
 }: EventCardProps) => {
+  const displayImageUrl = imageUrl || categoryImages[category] || categoryImages["Other"];
+
   return (
     <Link to={`/event/${id}`}>
       <Card className="overflow-hidden shadow-card hover:shadow-elevated transition-smooth cursor-pointer">
         <div className="relative h-48 bg-gradient-primary">
-          {imageUrl ? (
+          {displayImageUrl ? (
             <img
-              src={imageUrl}
+              src={displayImageUrl}
               alt={title}
               className="w-full h-full object-cover"
             />

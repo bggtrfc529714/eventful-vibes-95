@@ -60,8 +60,8 @@ const Auth = () => {
         if (error) throw error;
         toast.success("Welcome back!");
       }
-    } catch (error: any) {
-      toast.error(error.message || "An error occurred");
+    } catch (error) {
+      toast.error((error as Error).message || "An error occurred");
     } finally {
       setIsLoading(false);
     }

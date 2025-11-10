@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,121 +9,73 @@ import { toast } from "sonner";
 import { Calendar, MapPin, Users, Star, ArrowLeft, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import Navigation from "@/components/Navigation";
-
-interface Event {
-  id: string;
-  title: string;
-  description: string;
-  event_date: string;
-  location_name: string;
-  category: string;
-  capacity: number;
-  image_url?: string;
-  host_id: string;
-  profiles?: {
-    full_name: string;
-    bio?: string;
-  };
-}
+import { getEventById } from "@/lib/events";
+import { type Event } from "@/integrations/supabase/types";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { categoryImages } from "@/lib/category-images";
 
 const EventDetail = () => {
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [event, setEvent] = useState<Event | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRegistered, setIsRegistered] = useState(false);
-  const [registeredCount, setRegisteredCount] = useState(0);
-  const [hostRating, setHostRating] = useState<number | null>(null);
-  const [isRegistering, setIsRegistering] = useState(false);
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (id) {
-      fetchEvent();
-      checkRegistration();
-    }
-  }, [id]);
+  const { data: event, isLoading } = useQuery({
+    queryKey: ["event", id],
+    queryFn: () => getEventById(id!),
+    enabled: !!id,
+  });
 
-  const fetchEvent = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("events")
-        .select(`
-          *,
-          profiles (full_name, bio)
-        `)
-        .eq("id", id)
-        .single();
+  const { data: session } = useQuery({
+    queryKey: ["session"],
+    queryFn: () => supabase.auth.getSession(),
+  });
 
-      if (error) throw error;
-      setEvent(data as any);
-
-      // Fetch registration count
-      const { data: regs } = await supabase
+  const { data: isRegistered } = useQuery({
+    queryKey: ["registration", id, session?.data.session?.user?.id],
+    queryFn: async () => {
+      if (!id || !session?.data.session?.user?.id) return false;
+      const { data } = await supabase
         .from("event_registrations")
         .select("id")
-        .eq("event_id", id);
-      setRegisteredCount(regs?.length || 0);
+        .eq("event_id", id)
+        .eq("user_id", session.data.session.user.id)
+        .maybeSingle();
+      return !!data;
+    },
+    enabled: !!id && !!session?.data.session?.user?.id,
+  });
 
-      // Fetch host rating
-      const { data: rating } = await supabase.rpc("get_host_rating", {
-        host_user_id: data.host_id,
-      });
-      setHostRating(rating);
-    } catch (error) {
-      console.error("Error fetching event:", error);
-      toast.error("Failed to load event");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const checkRegistration = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data } = await supabase
-      .from("event_registrations")
-      .select("id")
-      .eq("event_id", id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    setIsRegistered(!!data);
-  };
-
-  const handleRegistration = async () => {
-    setIsRegistering(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
+  const mutation = useMutation({
+    mutationFn: async (register: boolean) => {
+      const user = session?.data.session?.user;
       if (!user) throw new Error("Not authenticated");
 
-      if (isRegistered) {
+      if (register) {
+        const { error } = await supabase.from("event_registrations").insert({
+          event_id: id!,
+          user_id: user.id,
+        });
+        if (error) throw error;
+      } else {
         const { error } = await supabase
           .from("event_registrations")
           .delete()
           .eq("event_id", id)
           .eq("user_id", user.id);
-
         if (error) throw error;
-        setIsRegistered(false);
-        setRegisteredCount((prev) => prev - 1);
-        toast.success("Unregistered from event");
-      } else {
-        const { error } = await supabase.from("event_registrations").insert({
-          event_id: id!,
-          user_id: user.id,
-        });
-
-        if (error) throw error;
-        setIsRegistered(true);
-        setRegisteredCount((prev) => prev + 1);
-        toast.success("Registered for event!");
       }
-    } catch (error: any) {
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["event", id] });
+      queryClient.invalidateQueries({ queryKey: ["registration", id, session?.data.session?.user?.id] });
+    },
+    onError: (error: Error) => {
       toast.error(error.message || "Failed to update registration");
-    } finally {
-      setIsRegistering(false);
-    }
+    },
+  });
+
+  const handleRegistration = () => {
+    mutation.mutate(!isRegistered);
   };
 
   if (isLoading) {
@@ -142,14 +94,15 @@ const EventDetail = () => {
     );
   }
 
-  const isFull = registeredCount >= event.capacity;
+  const isFull = event.registration_count >= event.capacity;
+  const displayImageUrl = event.image_url || categoryImages[event.category] || categoryImages["Other"];
 
   return (
     <div className="min-h-screen bg-background pb-20">
       <div className="relative h-64">
-        {event.image_url ? (
+        {displayImageUrl ? (
           <img
-            src={event.image_url}
+            src={displayImageUrl}
             alt={event.title}
             className="w-full h-full object-cover"
           />
@@ -195,7 +148,7 @@ const EventDetail = () => {
             <div className="flex items-center gap-3">
               <Users className="h-5 w-5 text-primary" />
               <span className="font-medium">
-                {registeredCount} / {event.capacity} registered
+                {event.registration_count} / {event.capacity} registered
               </span>
               {isFull && (
                 <Badge variant="destructive" className="ml-auto">
@@ -210,20 +163,17 @@ const EventDetail = () => {
             <div className="flex items-center gap-3">
               <Avatar>
                 <AvatarFallback>
-                  {event.profiles?.full_name?.charAt(0) || "?"}
+                  {event.host_full_name?.charAt(0) || "?"}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1">
-                <p className="font-medium">{event.profiles?.full_name}</p>
-                {event.profiles?.bio && (
-                  <p className="text-sm text-muted-foreground">{event.profiles.bio}</p>
-                )}
+                <p className="font-medium">{event.host_full_name}</p>
               </div>
-              {hostRating && (
+              {event.host_rating && (
                 <div className="flex items-center gap-1 bg-secondary/10 px-3 py-1.5 rounded-full">
                   <Star className="h-4 w-4 fill-secondary text-secondary" />
                   <span className="font-semibold text-secondary">
-                    {hostRating.toFixed(1)}
+                    {event.host_rating.toFixed(1)}
                   </span>
                 </div>
               )}
@@ -232,11 +182,11 @@ const EventDetail = () => {
 
           <Button
             onClick={handleRegistration}
-            disabled={isRegistering || (!isRegistered && isFull)}
+            disabled={mutation.isPending || (!isRegistered && isFull)}
             className="w-full h-12 text-base font-semibold"
             variant={isRegistered ? "outline" : "default"}
           >
-            {isRegistering ? (
+            {mutation.isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Please wait

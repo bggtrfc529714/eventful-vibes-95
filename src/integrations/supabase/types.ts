@@ -300,3 +300,28 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
+export type Event = {
+  id: string;
+  title: string;
+  description: string;
+  event_date: string;
+  location_name: string;
+  location_lat: number | null;
+  location_lng: number | null;
+  category: string;
+  tags: string[] | null;
+  capacity: number;
+  image_url: string | null;
+  created_at: string;
+  host_id: string;
+  registration_count: number;
+  host_full_name: string;
+  host_avatar_url: string | null;
+  host_rating: number;
+};
+
+export type EventsWithCount = {
+  events: Event[];
+  total_count: number;
+};
