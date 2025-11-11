@@ -12,10 +12,9 @@ import { toast } from "sonner";
 import { Star, LogOut, Loader2 } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from '../types/supabase';
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_KEY);
+
+
 
 const suggestedInterests = [
   "Sports",
@@ -212,13 +211,3 @@ const Profile = () => {
 
 export default Profile;
 
-export type Database = {
-  // ...other schema...
-  functions: {
-    get_profile_details: {
-      params: { p_user_id: string };
-      returns: { id: string; name: string; /* other fields */ }[]; // RPC returns array
-    };
-    // ...other functions...
-  };
-};
